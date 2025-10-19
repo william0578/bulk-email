@@ -1,2 +1,2 @@
-# bulk-email
-personal project, password only at the minute
+# bulk-email-send
+personal project, will need to sign up to EmailJS
