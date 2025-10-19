@@ -1,0 +1,158 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bulk Email Sender</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/emailjs-com@3.2.0/dist/email.min.js"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+  <div id="passcode-section" class="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+    <h1 class="text-2xl font-bold mb-4 text-center">Enter Passcode</h1>
+    <input id="passcode-input" type="password" placeholder="Passcode" class="w-full p-2 mb-4 border rounded">
+    <button onclick="checkPasscode()" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Unlock</button>
+    <p id="error-message" class="text-red-500 text-center mt-2 hidden">Incorrect passcode!</p>
+  </div>
+
+  <div id="email-section" class="hidden bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+    <h1 class="text-2xl font-bold mb-4 text-center">Bulk Email Sender</h1>
+    <form id="email-form" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium">EmailJS User ID</label>
+        <input id="user-id" type="text" placeholder="Your EmailJS User ID" class="w-full p-2 border rounded">
+      </div>
+      <div>
+        <label class="block text-sm font-medium">EmailJS Service ID</label>
+        <input id="service-id" type="text" placeholder="Your EmailJS Service ID" class="w-full p-2 border rounded">
+      </div>
+      <div>
+        <label class="block text-sm font-medium">EmailJS Template ID</label>
+        <input id="template-id" type="text" placeholder="Your EmailJS Template ID" class="w-full p-2 border rounded">
+      </div>
+      <div>
+        <label class="block text-sm font-medium">Recipient CSV</label>
+        <input id="recipients-file" type="file" accept=".csv" class="w-full p-2 border rounded">
+      </div>
+      <div>
+        <label class="block text-sm font-medium">Subject</label>
+        <input id="subject" type="text" placeholder="Email subject" class="w-full p-2 border rounded">
+      </div>
+      <div>
+        <label class="block text-sm font-medium">Message Body</label>
+        <textarea id="body" placeholder="Message (use {name} for personalization)" class="w-full p-2 border rounded" rows="4"></textarea>
+      </div>
+      <button type="button" onclick="sendEmails()" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600">Send Emails</button>
+    </form>
+    <p id="status" class="text-center mt-4"></p>
+  </div>
+
+  <script>
+    // Initialize EmailJS (replace with your public key or instruct users to get one)
+    emailjs.init("YOUR_EMAILJS_PUBLIC_KEY"); // Users must replace this
+
+    // Passcode (hardcoded for simplicity; not secure for production)
+    const PASSCODE = "trust2025";
+
+    function checkPasscode() {
+      const input = document.getElementById("passcode-input").value;
+      if (input === PASSCODE) {
+        document.getElementById("passcode-section").classList.add("hidden");
+        document.getElementById("email-section").classList.remove("hidden");
+      } else {
+        document.getElementById("error-message").classList.remove("hidden");
+      }
+    }
+
+    async function sendEmails() {
+      const userId = document.getElementById("user-id").value;
+      const serviceId = document.getElementById("service-id").value;
+      const templateId = document.getElementById("template-id").value;
+      const fileInput = document.getElementById("recipients-file").files[0];
+      const subject = document.getElementById("subject").value;
+      const body = document.getElementById("body").value;
+      const status = document.getElementById("status");
+
+      if (!userId || !serviceId || !templateId || !fileInput || !subject || !body) {
+        status.textContent = "Please fill all fields!";
+        return;
+      }
+
+      // Parse CSV
+      Papa.parse(fileInput, {
+        header: true,
+        complete: async (result) => {
+          const recipients = result.data;
+          status.textContent = `Sending to ${recipients.length} recipients...`;
+          let sentCount = 0;
+
+          for (const recipient of recipients) {
+            if (!recipient.email) continue;
+            const personalizedBody = body.replace("{name}", recipient.name || "Friend");
+            const templateParams = {
+              to_email: recipient.email,
+              subject: subject,
+              message: personalizedBody,
+            };
+
+            try {
+              await emailjs.send(serviceId, templateId, templateParams, userId);
+              sentCount++;
+              status.textContent = `Sent ${sentCount}/${recipients.length} emails`;
+              // Rate limit: 500ms delay between emails
+              await new Promise(resolve => setTimeout(resolve, 500));
+            } catch (error) {
+              console.error(`Failed to send to ${recipient.email}:`, error);
+            }
+          }
+          status.textContent = `Done! Sent ${sentCount}/${recipients.length} emails.`;
+        },
+        error: (error) => {
+          status.textContent = "Error parsing CSV!";
+          console.error(error);
+        }
+      });
+    }
+  </script>
+</body>
+</html>
